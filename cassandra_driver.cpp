@@ -36,9 +36,9 @@ const zend_function_entry pdo_cassandra_functions[] = {
 /* Declarations */
 static int  pdo_cassandra_handle_close(pdo_dbh_t *dbh TSRMLS_DC);
 static int  pdo_cassandra_handle_factory(pdo_dbh_t *dbh, zval *driver_options TSRMLS_DC);
-static int  pdo_cassandra_handle_prepare(pdo_dbh_t *dbh, const char *sql, long sql_len, pdo_stmt_t *stmt, zval *driver_options TSRMLS_DC);
-static int  pdo_cassandra_handle_quote(pdo_dbh_t *dbh, const char *unquoted, int unquotedlen, char **quoted, int *quotedlen, enum pdo_param_type paramtype  TSRMLS_DC);
-static long pdo_cassandra_handle_execute(pdo_dbh_t *dbh, const char *sql, long sql_len TSRMLS_DC);
+static int  pdo_cassandra_handle_prepare(pdo_dbh_t *dbh, const char *sql, size_t sql_len, pdo_stmt_t *stmt, zval *driver_options TSRMLS_DC);
+static int  pdo_cassandra_handle_quote(pdo_dbh_t *dbh, const char *unquoted, size_t unquotedlen, char **quoted, size_t *quotedlen, enum pdo_param_type paramtype  TSRMLS_DC);
+static long pdo_cassandra_handle_execute(pdo_dbh_t *dbh, const char *sql, size_t sql_len TSRMLS_DC);
 static int  pdo_cassandra_handle_set_attribute(pdo_dbh_t *dbh, long attr, zval *val TSRMLS_DC);
 static int  pdo_cassandra_handle_get_attribute(pdo_dbh_t *dbh, long attr, zval *return_value TSRMLS_DC);
 static int  pdo_cassandra_get_error(pdo_dbh_t *dbh, pdo_stmt_t *stmt, zval *info TSRMLS_DC);
@@ -59,6 +59,7 @@ static struct pdo_dbh_methods cassandra_methods = {
     pdo_cassandra_get_error,
     pdo_cassandra_handle_get_attribute,
     pdo_cassandra_check_liveness,
+    NULL,
     NULL,
     NULL
 };
@@ -84,7 +85,7 @@ static int pdo_cassandra_get_error(pdo_dbh_t *dbh, pdo_stmt_t *stmt, zval *info 
 
     if (einfo->errmsg) {
         add_next_index_long(info, einfo->errcode);
-        add_next_index_string(info, einfo->errmsg, 1);
+        add_next_index_string(info, einfo->errmsg);
     }
     return 1;
 }
@@ -351,7 +352,7 @@ static int pdo_cassandra_handle_factory(pdo_dbh_t *dbh, zval *driver_options TSR
 
 /** {{{ static int pdo_cassandra_handle_prepare(pdo_dbh_t *dbh, const char *sql, long sql_len, pdo_stmt_t *stmt, zval *driver_options TSRMLS_DC)
 */
-static int pdo_cassandra_handle_prepare(pdo_dbh_t *dbh, const char *sql, long sql_len, pdo_stmt_t *stmt, zval *driver_options TSRMLS_DC)
+static int pdo_cassandra_handle_prepare(pdo_dbh_t *dbh, const char *sql, size_t sql_len, pdo_stmt_t *stmt, zval *driver_options TSRMLS_DC)
 {
     pdo_cassandra_db_handle *H = static_cast<pdo_cassandra_db_handle *> (dbh->driver_data);
     pdo_cassandra_stmt *S      = new pdo_cassandra_stmt;
@@ -383,36 +384,41 @@ static int pdo_cassandra_handle_prepare(pdo_dbh_t *dbh, const char *sql, long sq
 std::string pdo_cassandra_get_first_sub_pattern(const std::string &subject, const std::string &pattern TSRMLS_DC)
 {
     std::string ret;
-    zval *return_value, *sub_patterns;
+    zval return_value, sub_patterns;
     pcre_cache_entry *pce;
+    zend_string *regexp = zend_string_init(const_cast<char *>(pattern.c_str()), pattern.size(), 0);
 
-    if ((pce = pcre_get_compiled_regex_cache(const_cast<char *>(pattern.c_str()), pattern.size() TSRMLS_CC)) == NULL) {
+    if ((pce = pcre_get_compiled_regex_cache(regexp)) == NULL) {
         return ret;
     }
 
-    MAKE_STD_ZVAL(return_value);
-    ALLOC_INIT_ZVAL(sub_patterns);
+    ZVAL_UNDEF(&return_value);
+    ZVAL_UNDEF(&sub_patterns);
 
-    php_pcre_match_impl(pce, const_cast<char *>(subject.c_str()), subject.size(), return_value, sub_patterns, 1, 1, 0, 0 TSRMLS_CC);
+    php_pcre_match_impl(pce, const_cast<char *>(subject.c_str()), subject.size(), &return_value, &sub_patterns, 1, 1, 0, 0 TSRMLS_CC);
 
-    if ((Z_LVAL_P(return_value) > 0) && (Z_TYPE_P(sub_patterns) == IS_ARRAY)) {
+    if ((Z_LVAL(return_value) > 0) && (Z_TYPE(sub_patterns) == IS_ARRAY)) {
 
-        if (zend_hash_index_exists(Z_ARRVAL_P(sub_patterns), (ulong) 1)) {
-            zval **data = NULL;
-            if (zend_hash_index_find(Z_ARRVAL_P(sub_patterns), (ulong) 1, (void**)&data) == SUCCESS) {
-                if (Z_TYPE_PP(data) == IS_ARRAY) {
-                    if (zend_hash_index_exists(Z_ARRVAL_PP(data), (ulong) 0)) {
-                        zval **match = NULL;
-                        if (zend_hash_index_find(Z_ARRVAL_PP(data), (ulong) 0, (void**)&match) == SUCCESS) {
-                            ret = Z_STRVAL_PP(match);
+        if (zend_hash_index_exists(Z_ARRVAL(sub_patterns), (ulong) 1)) {
+            zval *data = NULL;
+            data = zend_hash_index_find(Z_ARRVAL(sub_patterns), (ulong) 1);
+            if (data) {
+                if (Z_TYPE_P(data) == IS_ARRAY) {
+                    if (zend_hash_index_exists(Z_ARRVAL_P(data), (ulong) 0)) {
+                        zval *match = zend_hash_index_find(Z_ARRVAL_P(data), (ulong) 0);
+                        if (match) {
+                            ret = Z_STRVAL_P(match);
                         }
                     }
                 }
             }
+
         }
     }
-    zval_ptr_dtor(&return_value);
+
     zval_ptr_dtor(&sub_patterns);
+    zend_string_release(regexp);
+
     return ret;
 }
 /* }}} */
@@ -448,7 +454,7 @@ void pdo_cassandra_set_active_columnfamily(pdo_cassandra_db_handle *H, const std
 
 /** {{{ static long pdo_cassandra_handle_execute(pdo_dbh_t *dbh, const char *sql, long sql_len TSRMLS_DC)
 */
-static long pdo_cassandra_handle_execute(pdo_dbh_t *dbh, const char *sql, long sql_len TSRMLS_DC)
+static long pdo_cassandra_handle_execute(pdo_dbh_t *dbh, const char *sql, size_t sql_len TSRMLS_DC)
 {
     pdo_cassandra_db_handle *H = static_cast<pdo_cassandra_db_handle *> (dbh->driver_data);
 
@@ -521,7 +527,7 @@ static char *cassandra_escape(const char *to_escape, int to_escape_len)
 
 /** {{{ static int pdo_cassandra_handle_quote(pdo_dbh_t *dbh, const char *unquoted, int unquotedlen, char **quoted, int *quotedlen, enum pdo_param_type paramtype TSRMLS_DC)
 */
-static int pdo_cassandra_handle_quote(pdo_dbh_t *dbh, const char *unquoted, int unquotedlen, char **quoted, int *quotedlen, enum pdo_param_type paramtype TSRMLS_DC)
+static int pdo_cassandra_handle_quote(pdo_dbh_t *dbh, const char *unquoted, size_t unquotedlen, char **quoted, size_t *quotedlen, enum pdo_param_type paramtype TSRMLS_DC)
 {
     switch ((pdo_cassandra_type) paramtype) {
     case PDO_CASSANDRA_TYPE_BOOLEAN: {
@@ -656,12 +662,12 @@ static int pdo_cassandra_handle_set_attribute(pdo_dbh_t *dbh, long attr, zval *v
 
         case PDO_CASSANDRA_ATTR_RANDOMIZE:
             convert_to_boolean(val);
-            H->socket->setRandomize(Z_BVAL_P(val));
+            H->socket->setRandomize(Z_TYPE_P(val) == IS_TRUE ? 1 : 0);
         break;
 
         case PDO_CASSANDRA_ATTR_ALWAYS_TRY_LAST:
             convert_to_boolean(val);
-            H->socket->setAlwaysTryLast(Z_BVAL_P(val));
+            H->socket->setAlwaysTryLast(Z_TYPE_P(val) == IS_TRUE ? 1 : 0);
         break;
 
         case PDO_CASSANDRA_ATTR_LINGER:
@@ -676,7 +682,7 @@ static int pdo_cassandra_handle_set_attribute(pdo_dbh_t *dbh, long attr, zval *v
 
         case PDO_CASSANDRA_ATTR_NO_DELAY:
             convert_to_boolean(val);
-            H->socket->setNoDelay(Z_BVAL_P(val));
+            H->socket->setNoDelay(Z_TYPE_P(val) == IS_TRUE ? 1 : 0);
         break;
 
         case PDO_CASSANDRA_ATTR_CONN_TIMEOUT:
@@ -696,12 +702,12 @@ static int pdo_cassandra_handle_set_attribute(pdo_dbh_t *dbh, long attr, zval *v
 
         case PDO_CASSANDRA_ATTR_COMPRESSION:
             convert_to_boolean(val);
-            H->compression = Z_BVAL_P(val);
+            H->compression = Z_TYPE_P(val) == IS_TRUE ? 1 : 0;
         break;
 
         case PDO_CASSANDRA_ATTR_THRIFT_DEBUG:
             convert_to_boolean(val);
-            if (Z_BVAL_P(val)) {
+            if (Z_TYPE_P(val) == IS_TRUE ? 1 : 0) {
                 // Convert thift messages to php warnings
                 GlobalOutput.setOutputFunction(&php_cassandra_thrift_debug_output);
             } else {
@@ -712,7 +718,7 @@ static int pdo_cassandra_handle_set_attribute(pdo_dbh_t *dbh, long attr, zval *v
 
         case PDO_CASSANDRA_ATTR_PRESERVE_VALUES:
             convert_to_boolean(val);
-            H->preserve_values = Z_BVAL_P(val);
+            H->preserve_values = Z_TYPE_P(val) == IS_TRUE ? 1 : 0;
         break;
 
         case PDO_CASSANDRA_ATTR_CONSISTENCYLEVEL:
@@ -800,12 +806,12 @@ static int pdo_cassandra_handle_get_attribute(pdo_dbh_t *dbh, long attr, zval *r
         {
             std::string version;
             H->client->describe_version(version);
-            ZVAL_STRING(return_value, version.c_str(), 1);
+            ZVAL_STRING(return_value, version.c_str());
         }
         break;
 
         case PDO_ATTR_CLIENT_VERSION:
-            ZVAL_STRING(return_value, PHP_PDO_CASSANDRA_EXTVER, 1);
+            ZVAL_STRING(return_value, PHP_PDO_CASSANDRA_EXTVER);
         break;
 
         default:

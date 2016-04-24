@@ -252,7 +252,7 @@ namespace StreamExtraction {
     /**
      * Creates a zval reading bina
      */
-    zval* extract_zval(const unsigned char *binary, pdo_cassandra_type type, int size);
+    zval* extract_zval(zval *ret, const unsigned char *binary, pdo_cassandra_type type, int size);
 
 
     /**
@@ -262,9 +262,11 @@ namespace StreamExtraction {
     T extract(const unsigned char *bytes, unsigned int stream_size = sizeof(T))
     {
         T val = T();
+
         unsigned char *pval = reinterpret_cast<unsigned char *>(&val) + stream_size;
         --pval;
         bool neg = bytes[0] & 0x80;
+
         for (size_t i = 0; i < stream_size; i++) {
             *pval = bytes[i];
             --pval;
@@ -278,24 +280,22 @@ namespace StreamExtraction {
                 *pval = 0xff;
             }
         }
+
         return val;
     }
 
     // Zval creators signature
-    typedef zval *(*EvaluatorType)(const unsigned char *binary, int size);
+    typedef zval *(*EvaluatorType)(zval *ret, const unsigned char *binary, int size);
 
     /**
      * Evaluator: Ascii extraction
      */
-    zval *evaluate_string(const unsigned char *binary, int size) {
-        zval *ret;
-        MAKE_STD_ZVAL(ret);
-        Z_TYPE_P(ret) = IS_STRING;
-        char *str = (char *) emalloc(sizeof(*str) * (size + 1));
-        memcpy(str, binary, size);
-        str[size] = 0;
-        Z_STRVAL_P(ret) = str;
-        Z_STRLEN_P(ret) = size;
+    zval *evaluate_string(zval * ret, const unsigned char *binary, int size) {
+        //char *str = (char *) emalloc(sizeof(*str) * (size + 1));
+        //memcpy(str, binary, size);
+
+        ZVAL_STRINGL(ret, (const char *)binary, size);
+
         return ret;
     }
 
@@ -329,30 +329,23 @@ namespace StreamExtraction {
 		return str;
     }
 
-    zval *evaluate_uuid(const unsigned char *binary, int size) {
-
-        zval *ret;
-        MAKE_STD_ZVAL(ret);
-        Z_TYPE_P(ret) = IS_STRING;
+    zval *evaluate_uuid(zval *ret, const unsigned char *binary, int size) {
 
 		char *str = StreamExtraction::raw_uuid_to_str(binary, size);
 
-        Z_STRVAL_P(ret) = str;
-        Z_STRLEN_P(ret) = strlen(str);
+		ZVAL_STRING(ret, str);
+		efree(str);
+
         return ret;
     }
 
     /**
      * Evaluator: Binary to char *
      */
-    zval *evaluate_bytes_to_zval(const unsigned char *binary, int size) {
-        zval *ret;
-        MAKE_STD_ZVAL(ret);
-        Z_TYPE_P(ret) = IS_STRING;
-        char *str = (char *) emalloc(sizeof(*str) * (size));
-        memcpy(str, binary, size);
-        Z_STRVAL_P(ret) = str;
-        Z_STRLEN_P(ret) = size;
+    zval *evaluate_bytes_to_zval(zval *ret, const unsigned char *binary, int size) {
+
+        ZVAL_STRINGL(ret, (const char *)binary, size);
+
         return ret;
     }
 
@@ -360,22 +353,18 @@ namespace StreamExtraction {
      * Evaluator: integer and long extractions
      */
     template <class T>
-    zval *evaluate_integer_type(const unsigned char *binary, int stream_size = sizeof(T)) {
-        zval *ret;
-        MAKE_STD_ZVAL(ret);
-        Z_TYPE_P(ret) = IS_LONG;
-        Z_LVAL_P(ret) = 0L;
-        Z_LVAL_P(ret) = StreamExtraction::extract<T>(binary, stream_size);
+    zval *evaluate_integer_type(zval *ret, const unsigned char *binary, int stream_size = sizeof(T)) {
+
+        ZVAL_LONG(ret, StreamExtraction::extract<T>(binary, stream_size));
+
         return ret;
     }
 
     template <>
-    zval *evaluate_integer_type<bool>(const unsigned char *binary, int stream_size) {
-        zval *ret;
-        MAKE_STD_ZVAL(ret);
-        Z_TYPE_P(ret) = IS_BOOL;
-        Z_LVAL_P(ret) = 0L;
-        Z_LVAL_P(ret) = StreamExtraction::extract<bool>(binary, sizeof(bool));
+    zval *evaluate_integer_type<bool>(zval *ret, const unsigned char *binary, int stream_size) {
+
+        ZVAL_BOOL(ret, StreamExtraction::extract<bool>(binary, sizeof(bool)));
+
         return ret;
     }
 
@@ -384,28 +373,35 @@ namespace StreamExtraction {
      * Decimal number extraction
      * Php lacks such a type therefore we return an array containing the unscaled value and the scale
      */
-    zval *evaluate_decimal_type(const unsigned char *binary, int size) {
-        zval *ret;
-        MAKE_STD_ZVAL(ret);
+    zval *evaluate_decimal_type(zval *ret, const unsigned char *binary, int size) {
+
         array_init(ret);
         // Scale extraction
-        zval *scale = extract_zval(binary, PDO_CASSANDRA_TYPE_INTEGER, sizeof(int));
-        add_next_index_zval(ret, scale);
+        zval scale;
+        extract_zval(&scale, binary, PDO_CASSANDRA_TYPE_INTEGER, sizeof(int));
+        add_next_index_zval(ret, &scale);
 
         // Unscaled value extraction
         zval *unscaled_value;
+
         int unscaled_val_size = size - sizeof(int);
+        binary += sizeof(int);
+
         do {
+            zval tmp;
             int natural_unscaled_val_size = ((unscaled_val_size > 0) ? unscaled_val_size : 0);
             if (unscaled_val_size  <= (int) sizeof(int)) {
-                unscaled_value = evaluate_integer_type<int>(binary + sizeof(int), natural_unscaled_val_size);
+                unscaled_value = evaluate_integer_type<int>(&tmp, binary, natural_unscaled_val_size);
                 unscaled_val_size -= 4;
-            }
-            else {
-                unscaled_value = evaluate_integer_type<long>(binary + sizeof(int), natural_unscaled_val_size);
+
+            } else {
+                int stream_size = natural_unscaled_val_size > (int)sizeof(long) ? (int)sizeof(long) : natural_unscaled_val_size;
+                unscaled_value = evaluate_integer_type<long>(&tmp, binary, stream_size);
                 unscaled_val_size -= 8;
+                binary += stream_size;
             }
             add_next_index_zval(ret, unscaled_value);
+
         } while (unscaled_val_size > 0);
         return ret;
     }
@@ -414,12 +410,10 @@ namespace StreamExtraction {
      * Evaluator: float and double extraction
      */
     template <class T>
-    zval *evaluate_float_type(const unsigned char *binary, int size) {
-        zval *ret;
-        MAKE_STD_ZVAL(ret);
-        Z_TYPE_P(ret) = IS_DOUBLE;
-        Z_DVAL_P(ret) = (double)0.0;
-        Z_DVAL_P(ret) = StreamExtraction::extract<T>(binary);
+    zval *evaluate_float_type(zval *ret, const unsigned char *binary, int size) {
+
+        ZVAL_DOUBLE(ret, StreamExtraction::extract<T>(binary));
+
         return ret;
     }
 
@@ -459,21 +453,19 @@ namespace StreamExtraction {
     /**
      * Allocates a zval, and reads a value according to the specified type
      */
-    zval* extract_zval(const unsigned char *binary, pdo_cassandra_type type, int size) {
+    zval* extract_zval(zval *ret, const unsigned char *binary, pdo_cassandra_type type, int size) {
         if (!size) {
-            // We create a null zvalue in return
-            zval *ret;
-            MAKE_STD_ZVAL(ret);
-            ret->type = IS_NULL;
-            ret->value.lval = 0;
+            ZVAL_NULL(ret);
             return ret;
         }
+
         EvaluatorType pe = evaluate(type);
         if (!pe) {
             std::cout << "Zval extraction for type: " << (int)type << " not handled yet" << std::endl;
             //TODO raise exception
         }
-        return (*pe)(binary, size);
+
+        return (*pe)(ret, binary, size);
     }
 
 };
@@ -510,12 +502,10 @@ static int pdo_cassandra_stmt_describe(pdo_stmt_t *stmt, int colno TSRMLS_DC)
     try {
         std::string column_label = S->column_name_labels.right.at(colno);
 
-        stmt->columns[colno].name    = estrndup(column_label.c_str(), column_label.size());
-        stmt->columns[colno].namelen = column_label.size();
+        stmt->columns[colno].name    = zend_string_init(column_label.c_str(), column_label.size(), 0);
 
     } catch (std::exception &e) {
-        stmt->columns[colno].name    = estrndup(current_column.c_str(), current_column.size());
-        stmt->columns[colno].namelen = current_column.size();
+        stmt->columns[colno].name    = zend_string_init(current_column.c_str(), current_column.size(), 0);
     }
 
     stmt->columns[colno].param_type = PDO_PARAM_ZVAL;
@@ -533,8 +523,8 @@ zval* parse_collection(const std::string &type, const std::string &data) {
     unsigned short nbElements = StreamExtraction::extract<unsigned short>(reinterpret_cast <const unsigned char *>(data.c_str()));
 
     // ZVAl initialisation
-    zval *collection;
-    MAKE_STD_ZVAL(collection);
+    zval *collection = (zval *)emalloc(sizeof(zval));
+
     array_init(collection);
 
     // Iterating trough the collection
@@ -542,9 +532,12 @@ zval* parse_collection(const std::string &type, const std::string &data) {
     while (nbElements--)
         {
             unsigned short elem_size = StreamExtraction::extract<unsigned short>(datap);
+            zval zv;
+
             datap += 2;
-            zval *zv = StreamExtraction::extract_zval(datap, elt_types[0], elem_size);
-            add_next_index_zval(collection, zv);
+
+            add_next_index_zval(collection, StreamExtraction::extract_zval(&zv, datap, elt_types[0], elem_size));
+
             datap += elem_size;
         }
     return collection;
@@ -557,8 +550,8 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
     unsigned short nbElements = StreamExtraction::extract<unsigned short>(reinterpret_cast <const unsigned char *>(data.c_str()));
 
     // ZVAl initialisation
-    zval *collection;
-    MAKE_STD_ZVAL(collection);
+    zval *collection = (zval *)emalloc(sizeof(zval));
+
     array_init(collection);
     // Iterating trough the collection
     const unsigned char *datap = reinterpret_cast<const unsigned char *>(data.c_str() + 2);
@@ -572,16 +565,15 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
             const unsigned char *valuep = datap + key_size;
             unsigned short value_size = StreamExtraction::extract<unsigned short>(valuep);
             valuep += 2;
-            zval *value = StreamExtraction::extract_zval(valuep, elt_types[1], value_size);
+
+            zval value;
+
+            StreamExtraction::extract_zval(&value, valuep, elt_types[1], value_size);
 
             // Extracting key and pushing the zval in the collection
             if (elt_types[0] == PDO_CASSANDRA_TYPE_ASCII ||
                 elt_types[0] == PDO_CASSANDRA_TYPE_UTF8) {
-                // String key case
-                char *str = (char *) emalloc(sizeof(*str) * (key_size + 1));
-                memcpy(str, datap, key_size);
-                str[key_size] = 0;
-                add_assoc_zval(collection, str, value);
+                add_assoc_zval_ex(collection, (const char *)datap, key_size, &value);
 			}
 			else if (elt_types[0] == PDO_CASSANDRA_TYPE_UUID ||
                 elt_types[0] == PDO_CASSANDRA_TYPE_TIMEUUID) {
@@ -590,13 +582,15 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
                 unsigned char *raw_uuid = (unsigned char *) emalloc(sizeof(*raw_uuid) * key_size);
                 memcpy(raw_uuid, datap, key_size);
 				char *str_uuid = StreamExtraction::raw_uuid_to_str(raw_uuid, key_size);
-                add_assoc_zval(collection, str_uuid, value);
+                add_assoc_zval(collection, str_uuid, &value);
+                efree(str_uuid);
             } else {
                 // Numeric keys case
-                assert(key_size == sizeof(long) && "parse_collection_map key_size assert");
+                assert(key_size == sizeof(int) && "parse_collection_map key_size assert");
                 long key = StreamExtraction::extract<int>(datap);
-                add_index_zval(collection, key, value);
+                add_index_zval(collection, key, &value);
             }
+
             datap += value_size + 2 + key_size;
         }
 
@@ -638,8 +632,7 @@ static int pdo_cassandra_stmt_get_column(pdo_stmt_t *stmt, int colno, char **ptr
                 case PDO_CASSANDRA_TYPE_SET:
                     {
                         // The return value of the parse collection must be the zval stuff
-                        zval **ref = (zval **) emalloc(sizeof(zval));
-                        *ref = parse_collection(S->result.get ()->schema.value_types [current_column], (*col_it).value);
+                        zval *ref = parse_collection(S->result.get ()->schema.value_types [current_column], (*col_it).value);
                         *ptr = (char *)ref;
                         *len = sizeof(zval);
                         *caller_frees = 1;
@@ -649,8 +642,7 @@ static int pdo_cassandra_stmt_get_column(pdo_stmt_t *stmt, int colno, char **ptr
                 case PDO_CASSANDRA_TYPE_MAP:
                     {
                         // The return value of the parse collection must be the zval stuff
-                        zval **ref = (zval **) emalloc(sizeof(*ref));
-                        *ref = parse_collection_map(S->result.get ()->schema.value_types [current_column], (*col_it).value);
+                        zval *ref = parse_collection_map(S->result.get ()->schema.value_types [current_column], (*col_it).value);
                         *ptr = (char *)ref;
                         *len = sizeof(zval);
                         *caller_frees = 1;
@@ -658,14 +650,15 @@ static int pdo_cassandra_stmt_get_column(pdo_stmt_t *stmt, int colno, char **ptr
                     }
 
                 default:
+                    zval *ref = (zval *)malloc(sizeof (zval));
+                    ZVAL_UNDEF(ref);
 
-                    zval **ref = (zval **) emalloc(sizeof(*ref));
-                    *ref = StreamExtraction::extract_zval(reinterpret_cast<const unsigned char*>((*col_it).value.c_str()),
+                    StreamExtraction::extract_zval(ref, reinterpret_cast<const unsigned char*>((*col_it).value.c_str()),
                                                           lparam_type,
                                                           (*col_it).value.size());
                     *ptr = (char *)ref;
                     *len = sizeof(zval);
-                    *caller_frees = 1;
+                    *caller_frees = 0;
                     break;
                 }
             return 1;
@@ -702,19 +695,16 @@ static int pdo_cassandra_stmt_get_column_meta(pdo_stmt_t *stmt, long colno, zval
     add_assoc_stringl(return_value,
                       "keyspace",
                       const_cast <char *> (H->active_keyspace.c_str()),
-                      H->active_keyspace.size(),
-                      1);
+                      H->active_keyspace.size());
 
     add_assoc_stringl(return_value,
                       "columnfamily",
                       const_cast <char *> (H->active_columnfamily.c_str()),
-                      H->active_columnfamily.size(),
-                      1);
+                      H->active_columnfamily.size());
 
     add_assoc_string(return_value,
                      "native_type",
-                     const_cast <char *>(S->result.get()->schema.value_types[current_column].c_str()),
-                     1);
+                     const_cast <char *>(S->result.get()->schema.value_types[current_column].c_str()));
 
 #if 0
 // This code is not fonctionnal. However I kept it because this is how this feature should be implemented

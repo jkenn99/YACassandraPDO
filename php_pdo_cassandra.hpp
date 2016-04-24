@@ -27,6 +27,7 @@ extern "C" {
 #endif
 
 #include "php.h"
+#include <ext/standard/php_var.h>
 }
 #endif
 
