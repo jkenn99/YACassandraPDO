@@ -294,7 +294,7 @@ namespace StreamExtraction {
         //char *str = (char *) emalloc(sizeof(*str) * (size + 1));
         //memcpy(str, binary, size);
 
-        ZVAL_STRINGL(ret, (const char *)binary, size);
+        Y_ZVAL_STRINGL(ret, (const char *)binary, size);
 
         return ret;
     }
@@ -325,7 +325,7 @@ namespace StreamExtraction {
             }
         }
 
-        str[size_str] = 0;
+        str[size_str] = '\0';
 		return str;
     }
 
@@ -333,7 +333,7 @@ namespace StreamExtraction {
 
 		char *str = StreamExtraction::raw_uuid_to_str(binary, size);
 
-		ZVAL_STRING(ret, str);
+		Y_ZVAL_STRING(ret, str);
 		efree(str);
 
         return ret;
@@ -344,7 +344,7 @@ namespace StreamExtraction {
      */
     zval *evaluate_bytes_to_zval(zval *ret, const unsigned char *binary, int size) {
 
-        ZVAL_STRINGL(ret, (const char *)binary, size);
+        Y_ZVAL_STRINGL(ret, (const char *)binary, size);
 
         return ret;
     }
@@ -377,9 +377,16 @@ namespace StreamExtraction {
 
         array_init(ret);
         // Scale extraction
-        zval scale;
-        extract_zval(&scale, binary, PDO_CASSANDRA_TYPE_INTEGER, sizeof(int));
-        add_next_index_zval(ret, &scale);
+
+#if PHP_MAJOR_VERSION >= 7
+            zval scale, *pscale = &scale;
+#else
+            zval *pscale;
+            MAKE_STD_ZVAL(pscale);
+#endif
+
+        extract_zval(pscale, binary, PDO_CASSANDRA_TYPE_INTEGER, sizeof(int));
+        add_next_index_zval(ret, pscale);
 
         // Unscaled value extraction
         zval *unscaled_value;
@@ -502,10 +509,19 @@ static int pdo_cassandra_stmt_describe(pdo_stmt_t *stmt, int colno TSRMLS_DC)
     try {
         std::string column_label = S->column_name_labels.right.at(colno);
 
+#if PHP_MAJOR_VERSION >= 7
         stmt->columns[colno].name    = zend_string_init(column_label.c_str(), column_label.size(), 0);
-
+#else
+        stmt->columns[colno].name    = estrdup(stmt->columns[colno].name);
+        stmt->columns[colno].namelen = column_label.size();
+#endif
     } catch (std::exception &e) {
+#if PHP_MAJOR_VERSION >= 7
         stmt->columns[colno].name    = zend_string_init(current_column.c_str(), current_column.size(), 0);
+#else
+        stmt->columns[colno].name    = estrdup(current_column.c_str());
+        stmt->columns[colno].namelen = current_column.size();
+#endif
     }
 
     stmt->columns[colno].param_type = PDO_PARAM_ZVAL;
@@ -523,7 +539,8 @@ zval* parse_collection(const std::string &type, const std::string &data) {
     unsigned short nbElements = StreamExtraction::extract<unsigned short>(reinterpret_cast <const unsigned char *>(data.c_str()));
 
     // ZVAl initialisation
-    zval *collection = (zval *)emalloc(sizeof(zval));
+    zval *collection;
+    MAKE_STD_ZVAL(collection);
 
     array_init(collection);
 
@@ -532,11 +549,16 @@ zval* parse_collection(const std::string &type, const std::string &data) {
     while (nbElements--)
         {
             unsigned short elem_size = StreamExtraction::extract<unsigned short>(datap);
-            zval zv;
 
+#if PHP_MAJOR_VERSION >= 7
+            zval zv, *pzv = &zv;
+#else
+            zval *pzv;
+            MAKE_STD_ZVAL(pzv);
+#endif
             datap += 2;
 
-            add_next_index_zval(collection, StreamExtraction::extract_zval(&zv, datap, elt_types[0], elem_size));
+            add_next_index_zval(collection, StreamExtraction::extract_zval(pzv, datap, elt_types[0], elem_size));
 
             datap += elem_size;
         }
@@ -550,7 +572,9 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
     unsigned short nbElements = StreamExtraction::extract<unsigned short>(reinterpret_cast <const unsigned char *>(data.c_str()));
 
     // ZVAl initialisation
-    zval *collection = (zval *)emalloc(sizeof(zval));
+    zval *collection ;
+
+    MAKE_STD_ZVAL(collection);
 
     array_init(collection);
     // Iterating trough the collection
@@ -566,14 +590,18 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
             unsigned short value_size = StreamExtraction::extract<unsigned short>(valuep);
             valuep += 2;
 
-            zval value;
-
-            StreamExtraction::extract_zval(&value, valuep, elt_types[1], value_size);
+#if PHP_MAJOR_VERSION >= 7
+            zval value, *pvalue = &value;
+#else
+            zval *pvalue;
+            MAKE_STD_ZVAL(pvalue);
+#endif
+            StreamExtraction::extract_zval(pvalue, valuep, elt_types[1], value_size);
 
             // Extracting key and pushing the zval in the collection
             if (elt_types[0] == PDO_CASSANDRA_TYPE_ASCII ||
                 elt_types[0] == PDO_CASSANDRA_TYPE_UTF8) {
-                add_assoc_zval_ex(collection, (const char *)datap, key_size, &value);
+                add_assoc_zval_ex(collection, (const char *)datap, key_size(key_size), pvalue);
 			}
 			else if (elt_types[0] == PDO_CASSANDRA_TYPE_UUID ||
                 elt_types[0] == PDO_CASSANDRA_TYPE_TIMEUUID) {
@@ -582,13 +610,14 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
                 unsigned char *raw_uuid = (unsigned char *) emalloc(sizeof(*raw_uuid) * key_size);
                 memcpy(raw_uuid, datap, key_size);
 				char *str_uuid = StreamExtraction::raw_uuid_to_str(raw_uuid, key_size);
-                add_assoc_zval(collection, str_uuid, &value);
+                add_assoc_zval(collection, str_uuid, pvalue);
+
                 efree(str_uuid);
             } else {
                 // Numeric keys case
                 assert(key_size == sizeof(int) && "parse_collection_map key_size assert");
                 long key = StreamExtraction::extract<int>(datap);
-                add_index_zval(collection, key, &value);
+                add_index_zval(collection, key, pvalue);
             }
 
             datap += value_size + 2 + key_size;
@@ -631,8 +660,13 @@ static int pdo_cassandra_stmt_get_column(pdo_stmt_t *stmt, int colno, char **ptr
                 case PDO_CASSANDRA_TYPE_LIST:
                 case PDO_CASSANDRA_TYPE_SET:
                     {
-                        // The return value of the parse collection must be the zval stuff
+#if PHP_MAJOR_VERSION >= 7
                         zval *ref = parse_collection(S->result.get ()->schema.value_types [current_column], (*col_it).value);
+#else
+                        zval **ref = (zval **) emalloc(sizeof(*ref));
+                        // The return value of the parse collection must be the zval stuff
+                        *ref = parse_collection(S->result.get ()->schema.value_types [current_column], (*col_it).value);
+#endif
                         *ptr = (char *)ref;
                         *len = sizeof(zval);
                         *caller_frees = 1;
@@ -641,8 +675,13 @@ static int pdo_cassandra_stmt_get_column(pdo_stmt_t *stmt, int colno, char **ptr
 
                 case PDO_CASSANDRA_TYPE_MAP:
                     {
-                        // The return value of the parse collection must be the zval stuff
+#if PHP_MAJOR_VERSION >= 7
                         zval *ref = parse_collection_map(S->result.get ()->schema.value_types [current_column], (*col_it).value);
+#else
+                        zval **ref = (zval **) emalloc(sizeof(*ref));
+                        // The return value of the parse collection must be the zval stuff
+                        *ref = parse_collection_map(S->result.get ()->schema.value_types [current_column], (*col_it).value);
+#endif
                         *ptr = (char *)ref;
                         *len = sizeof(zval);
                         *caller_frees = 1;
@@ -650,15 +689,26 @@ static int pdo_cassandra_stmt_get_column(pdo_stmt_t *stmt, int colno, char **ptr
                     }
 
                 default:
+#if PHP_MAJOR_VERSION >= 7
                     zval *ref = (zval *)malloc(sizeof (zval));
                     ZVAL_UNDEF(ref);
 
                     StreamExtraction::extract_zval(ref, reinterpret_cast<const unsigned char*>((*col_it).value.c_str()),
-                                                          lparam_type,
-                                                          (*col_it).value.size());
+                                                                              lparam_type,
+                                                                              (*col_it).value.size());
+
+#else
+                    zval **ref = (zval **)malloc(sizeof (*ref));
+                    zval *pref;
+                    MAKE_STD_ZVAL(pref);
+
+                    *ref = StreamExtraction::extract_zval(pref, reinterpret_cast<const unsigned char*>((*col_it).value.c_str()),
+                                                                              lparam_type,
+                                                                              (*col_it).value.size());
+#endif
+
                     *ptr = (char *)ref;
                     *len = sizeof(zval);
-                    *caller_frees = 0;
                     break;
                 }
             return 1;
@@ -692,17 +742,17 @@ static int pdo_cassandra_stmt_get_column_meta(pdo_stmt_t *stmt, long colno, zval
         return 0;
     }
 
-    add_assoc_stringl(return_value,
+    y_add_assoc_stringl(return_value,
                       "keyspace",
                       const_cast <char *> (H->active_keyspace.c_str()),
                       H->active_keyspace.size());
 
-    add_assoc_stringl(return_value,
+    y_add_assoc_stringl(return_value,
                       "columnfamily",
                       const_cast <char *> (H->active_columnfamily.c_str()),
                       H->active_columnfamily.size());
 
-    add_assoc_string(return_value,
+    y_add_assoc_string(return_value,
                      "native_type",
                      const_cast <char *>(S->result.get()->schema.value_types[current_column].c_str()));
 
