@@ -31,6 +31,8 @@ extern "C" {
 }
 #endif
 
+#include <gmp.h>
+
 #if PHP_MAJOR_VERSION >= 7
 
 typedef size_t        size_long_t;

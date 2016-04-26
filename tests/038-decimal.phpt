@@ -49,6 +49,10 @@ $stmt->bindValue (':my_decimal', "112233445566778899.112233445566778899", PDO::C
 $stmt->bindValue (':key', 'ff', PDO::PARAM_STR);
 $stmt->execute ();
 
+$stmt->bindValue (':my_decimal', "9999999999112233445566778899.112233445566778899", PDO::CASSANDRA_DECIMAL);
+$stmt->bindValue (':key', 'gg', PDO::PARAM_STR);
+$stmt->execute ();
+
 $stmt->bindValue (':my_decimal', "-2524.1234", PDO::CASSANDRA_DECIMAL);
 $stmt->bindValue (':key', 'naa', PDO::PARAM_STR);
 $stmt->execute ();
@@ -97,6 +101,11 @@ $stmt2 = $db->query ("SELECT my_decimal FROM test WHERE my_key='ff'");
 $res = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 print_r($res[0]);
 
+$stmt2 = $db->query ("SELECT my_decimal FROM test WHERE my_key='gg'");
+$res = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+print_r($res[0]);
+
+
 $stmt2 = $db->query ("SELECT my_decimal FROM test WHERE my_key='naa'");
 $res = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 print_r($res[0]);
@@ -121,7 +130,7 @@ $stmt2 = $db->query ("SELECT my_decimal FROM test WHERE my_key='ngg'");
 $res = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 print_r($res[0]);
 
-
+?>
 --EXPECT--
 Array
 (
@@ -173,8 +182,16 @@ Array
     [my_decimal] => Array
         (
             [0] => 18
-            [1] => 8234495237290528275
-            [2] => 6084187275451764
+            [1] => 112233445566778899112233445566778899
+        )
+
+)
+Array
+(
+    [my_decimal] => Array
+        (
+            [0] => 18
+            [1] => 9999999999112233445566778899112233445566778899
         )
 
 )

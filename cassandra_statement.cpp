@@ -20,6 +20,27 @@
 #include <map>
 #include <sstream>
 
+// this　function is copy and modified from DataStax's cpp-driver project.
+static void import_twos_complement(uint8_t *data, size_t size, mpz_ptr number)
+{
+    mpz_import(number, size, 1, sizeof(uint8_t), 1, 0, data);
+
+    /* negative value */
+    if ((data[0] & 0x80) == 0x80) {
+        /* mpz_import() imports the two's complement value as an unsigned integer
+         * so this needs to subtract 2^(8 * num_bytes) to get the negative value.
+         */
+
+        mpz_t temp;
+        mpz_init(temp);
+        mpz_set_ui(temp, 1);
+        mpz_mul_2exp(temp, temp, 8 * size);
+        mpz_sub(number, number, temp);
+        mpz_clear(temp);
+    }
+}
+
+
 template <class T>
 T pdo_cassandra_marshal_numeric(pdo_stmt_t *stmt, const std::string &binary);
 static pdo_cassandra_type pdo_cassandra_get_cassandra_type(const std::string &type);
@@ -255,6 +276,7 @@ namespace StreamExtraction {
     zval* extract_zval(zval *ret, const unsigned char *binary, pdo_cassandra_type type, int size);
 
 
+
     /**
      * Read n bytes to a primitive type
      */
@@ -388,28 +410,23 @@ namespace StreamExtraction {
         extract_zval(pscale, binary, PDO_CASSANDRA_TYPE_INTEGER, sizeof(int));
         add_next_index_zval(ret, pscale);
 
-        // Unscaled value extraction
-        zval *unscaled_value;
+        long unscaled_val_size = size - sizeof(int);
 
-        int unscaled_val_size = size - sizeof(int);
+        if (unscaled_val_size < 0) {
+            unscaled_val_size = 0;
+        }
+
         binary += sizeof(int);
 
-        do {
-            zval tmp;
-            int natural_unscaled_val_size = ((unscaled_val_size > 0) ? unscaled_val_size : 0);
-            if (unscaled_val_size  <= (int) sizeof(int)) {
-                unscaled_value = evaluate_integer_type<int>(&tmp, binary, natural_unscaled_val_size);
-                unscaled_val_size -= 4;
+        MP_INT unscaled_val;
+        mpz_init(&unscaled_val);
+        import_twos_complement((uint8_t *)binary, unscaled_val_size, &unscaled_val);
 
-            } else {
-                int stream_size = natural_unscaled_val_size > (int)sizeof(long) ? (int)sizeof(long) : natural_unscaled_val_size;
-                unscaled_value = evaluate_integer_type<long>(&tmp, binary, stream_size);
-                unscaled_val_size -= 8;
-                binary += stream_size;
-            }
-            add_next_index_zval(ret, unscaled_value);
+        char * buffer = (char *)emalloc(sizeof(char) * (mpz_sizeinbase(&unscaled_val, 10) + 2));
+        y_add_next_index_string(ret, mpz_get_str(buffer, 10, &unscaled_val));
+        efree(buffer);
+        mpz_clear(&unscaled_val);
 
-        } while (unscaled_val_size > 0);
         return ret;
     }
 
