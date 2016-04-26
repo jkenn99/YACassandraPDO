@@ -105,7 +105,6 @@ $stmt2 = $db->query ("SELECT my_decimal FROM test WHERE my_key='gg'");
 $res = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 print_r($res[0]);
 
-
 $stmt2 = $db->query ("SELECT my_decimal FROM test WHERE my_key='naa'");
 $res = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 print_r($res[0]);
@@ -182,7 +181,8 @@ Array
     [my_decimal] => Array
         (
             [0] => 18
-            [1] => 112233445566778899112233445566778899
+            [1] => 8234495237290528275
+            [2] => 6084187275451764
         )
 
 )
@@ -191,7 +191,9 @@ Array
     [my_decimal] => Array
         (
             [0] => 18
-            [1] => 9999999999112233445566778899112233445566778899
+            [1] => 3338696445037973011
+            [2] => -4280598759413519201
+            [3] => 29387358
         )
 
 )
