@@ -60,7 +60,6 @@ static struct pdo_dbh_methods cassandra_methods = {
     pdo_cassandra_handle_get_attribute,
     pdo_cassandra_check_liveness,
     NULL,
-    NULL,
     NULL
 };
 
