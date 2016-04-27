@@ -1,0 +1,18 @@
+language: php
+sudo: required
+dist: trusty
+php:
+  - 7.0
+  - 5.6
+
+install:
+  - sudo apt-get install -y libboost1.55-all-dev
+  - travis-ci/install-dep.sh
+
+script:
+  - php -m
+  - phpize
+  - ./configure
+  - make
+  - mv tests/config.inc-dist tests/config.inc
+  - REPORT_EXIT_STATUS=1 TEST_PHP_ARGS="-q --show-diff" make test
