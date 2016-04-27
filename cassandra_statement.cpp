@@ -21,7 +21,7 @@
 #include <sstream>
 
 template <class T>
-T pdo_cassandra_marshal_numeric(pdo_stmt_t *stmt, const std::string &binary);
+T pdo_cassandra_marshal_numeric(pdo_stmt_t *stmt, const std::string &binary TSRMLS_DC);
 static pdo_cassandra_type pdo_cassandra_get_cassandra_type(const std::string &type);
 
 static zend_bool pdo_cassandra_describe_keyspace(pdo_stmt_t *stmt TSRMLS_DC)
@@ -487,7 +487,7 @@ namespace StreamExtraction {
 };
 
 template <class T>
-T pdo_cassandra_marshal_numeric(pdo_stmt_t *stmt, const std::string &binary)
+T pdo_cassandra_marshal_numeric(pdo_stmt_t *stmt, const std::string &binary TSRMLS_DC)
 {
     if (sizeof(T) != binary.size()) {
         // Binary is null

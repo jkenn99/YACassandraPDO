@@ -371,7 +371,7 @@ static int pdo_cassandra_handle_prepare(pdo_dbh_t *dbh, const char *sql, size_lo
         H->tmpConsistency = pdo_cassandra_get_consistency(dbh);
         consistency = pdo_attr_lval(driver_options, static_cast <pdo_attribute_type>(PDO_CASSANDRA_ATTR_CONSISTENCYLEVEL), consistency TSRMLS_CC);
         if (consistency != -1) {
-            pdo_cassandra_set_consistency(dbh, consistency);
+            pdo_cassandra_set_consistency(dbh, consistency TSRMLS_CC);
         }
     }
 
@@ -753,7 +753,7 @@ static int pdo_cassandra_handle_set_attribute(pdo_dbh_t *dbh, zend_long attr, zv
         break;
 
         case PDO_CASSANDRA_ATTR_CONSISTENCYLEVEL:
-            pdo_cassandra_set_consistency(dbh, Z_LVAL_P(val));
+            pdo_cassandra_set_consistency(dbh, Z_LVAL_P(val) TSRMLS_CC);
         break;
 
         default:
