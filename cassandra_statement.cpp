@@ -379,15 +379,12 @@ namespace StreamExtraction {
         array_init(ret);
         // Scale extraction
 
-#if PHP_MAJOR_VERSION >= 7
-            zval scale, *pscale = &scale;
-#else
-            zval *pscale;
-            MAKE_STD_ZVAL(pscale);
-#endif
+        zval *scale;
 
-        extract_zval(pscale, binary, PDO_CASSANDRA_TYPE_INTEGER, sizeof(int));
-        add_next_index_zval(ret, pscale);
+        MAKE_STD_ZVAL(scale);
+
+        extract_zval(scale, binary, PDO_CASSANDRA_TYPE_INTEGER, sizeof(int));
+        add_next_index_zval(ret, scale);
 
         long unscaled_val_size = size - sizeof(int);
 
@@ -398,36 +395,26 @@ namespace StreamExtraction {
         binary += sizeof(int);
 
         // Unscaled value extraction
-        zval *unscaled_value;
+        zval *unscaled_value, *tmp;
 
         int repeats = unscaled_val_size / sizeof(long);
         int first_bytes = unscaled_val_size % sizeof(long);
 
         int i;
         for (i = 0; i < repeats ; i ++) {
-#if PHP_MAJOR_VERSION >= 7
-            zval tmp, *ptmp = &tmp;
-#else
-            zval *ptmp;
-            MAKE_STD_ZVAL(ptmp);
-#endif
-            unscaled_value = evaluate_integer_type<long>(ptmp, binary + first_bytes + sizeof(long) * (repeats - i - 1), sizeof(long));
+            MAKE_STD_ZVAL(tmp);
+
+            unscaled_value = evaluate_integer_type<long>(tmp, binary + first_bytes + sizeof(long) * (repeats - i - 1), sizeof(long));
             add_next_index_zval(ret, unscaled_value);
         }
 
         if (first_bytes) {
-
-#if PHP_MAJOR_VERSION >= 7
-            zval tmp, *ptmp = &tmp;
-#else
-            zval *ptmp;
-            MAKE_STD_ZVAL(ptmp);
-#endif
+            MAKE_STD_ZVAL(tmp);
 
             if (first_bytes <= (int)sizeof(int)) {
-                unscaled_value = evaluate_integer_type<int>(ptmp, binary, first_bytes);
+                unscaled_value = evaluate_integer_type<int>(tmp, binary, first_bytes);
             } else {
-                unscaled_value = evaluate_integer_type<long>(ptmp, binary, first_bytes);
+                unscaled_value = evaluate_integer_type<long>(tmp, binary, first_bytes);
             }
             add_next_index_zval(ret, unscaled_value);
         }
@@ -562,7 +549,8 @@ zval* parse_collection(const std::string &type, const std::string &data) {
 
     // ZVAl initialisation
     zval *collection;
-    MAKE_STD_ZVAL(collection);
+
+    ALLOC_INIT_ZVAL(collection);
 
     array_init(collection);
 
@@ -572,15 +560,12 @@ zval* parse_collection(const std::string &type, const std::string &data) {
         {
             unsigned short elem_size = StreamExtraction::extract<unsigned short>(datap);
 
-#if PHP_MAJOR_VERSION >= 7
-            zval zv, *pzv = &zv;
-#else
-            zval *pzv;
-            MAKE_STD_ZVAL(pzv);
-#endif
+            zval *zv;
+            MAKE_STD_ZVAL(zv);
+
             datap += 2;
 
-            add_next_index_zval(collection, StreamExtraction::extract_zval(pzv, datap, elt_types[0], elem_size));
+            add_next_index_zval(collection, StreamExtraction::extract_zval(zv, datap, elt_types[0], elem_size));
 
             datap += elem_size;
         }
@@ -594,9 +579,9 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
     unsigned short nbElements = StreamExtraction::extract<unsigned short>(reinterpret_cast <const unsigned char *>(data.c_str()));
 
     // ZVAl initialisation
-    zval *collection ;
+    zval *collection;
 
-    MAKE_STD_ZVAL(collection);
+    ALLOC_INIT_ZVAL(collection);
 
     array_init(collection);
     // Iterating trough the collection
@@ -612,18 +597,16 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
             unsigned short value_size = StreamExtraction::extract<unsigned short>(valuep);
             valuep += 2;
 
-#if PHP_MAJOR_VERSION >= 7
-            zval value, *pvalue = &value;
-#else
-            zval *pvalue;
-            MAKE_STD_ZVAL(pvalue);
-#endif
-            StreamExtraction::extract_zval(pvalue, valuep, elt_types[1], value_size);
+            zval *value;
+
+            MAKE_STD_ZVAL(value);
+
+            StreamExtraction::extract_zval(value, valuep, elt_types[1], value_size);
 
             // Extracting key and pushing the zval in the collection
             if (elt_types[0] == PDO_CASSANDRA_TYPE_ASCII ||
                 elt_types[0] == PDO_CASSANDRA_TYPE_UTF8) {
-                add_assoc_zval_ex(collection, (const char *)datap, key_size(key_size), pvalue);
+                add_assoc_zval_ex(collection, (const char *)datap, key_size(key_size), value);
 			}
 			else if (elt_types[0] == PDO_CASSANDRA_TYPE_UUID ||
                 elt_types[0] == PDO_CASSANDRA_TYPE_TIMEUUID) {
@@ -632,14 +615,14 @@ zval* parse_collection_map(const std::string &type, const std::string &data) {
                 unsigned char *raw_uuid = (unsigned char *) emalloc(sizeof(*raw_uuid) * key_size);
                 memcpy(raw_uuid, datap, key_size);
 				char *str_uuid = StreamExtraction::raw_uuid_to_str(raw_uuid, key_size);
-                add_assoc_zval(collection, str_uuid, pvalue);
+                add_assoc_zval(collection, str_uuid, value);
 
                 efree(str_uuid);
             } else {
                 // Numeric keys case
                 assert(key_size == sizeof(int) && "parse_collection_map key_size assert");
                 long key = StreamExtraction::extract<int>(datap);
-                add_index_zval(collection, key, pvalue);
+                add_index_zval(collection, key, value);
             }
 
             datap += value_size + 2 + key_size;

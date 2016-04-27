@@ -43,7 +43,8 @@ typedef size_t        size_int_t;
 
 #define Y_ZVAL_STRINGL              ZVAL_STRINGL
 #define Y_ZVAL_STRING               ZVAL_STRING
-#define MAKE_STD_ZVAL(__zval)       __zval = (zval *) emalloc(sizeof(zval))
+#define MAKE_STD_ZVAL(p)            zval _stack_zval_##p; p = &(_stack_zval_##p)
+#define ALLOC_INIT_ZVAL(p)          p = (zval *)emalloc(sizeof(zval))
 #define key_size(__size)            (__size)
 
 #else
