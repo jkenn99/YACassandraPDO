@@ -70,7 +70,11 @@ static void pdo_cassandra_stmt_undescribe(pdo_stmt_t *stmt TSRMLS_DC)
         struct pdo_column_data *cols = stmt->columns;
 
         for (i = 0; i < stmt->column_count; i++) {
+#if PHP_MAJOR_VERSION >= 7
+            zend_string_release(cols[i].name);
+#else
             efree(cols[i].name);
+#endif
         }
         efree(stmt->columns);
         stmt->columns = NULL;
