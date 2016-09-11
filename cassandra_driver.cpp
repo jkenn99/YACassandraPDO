@@ -282,8 +282,13 @@ static int pdo_cassandra_handle_factory(pdo_dbh_t *dbh, zval *driver_options TSR
     /* set possible connection timeout */
     long timeout = 0;
     /* set SSL propeties */
-    char *ssl_key = NULL, *ssl_key_passphrase = NULL, *ssl_cert = NULL, *ssl_cipher = NULL, *ssl_capath = NULL;
     int ssl_validate = 0, ssl_verify_host = 1;
+
+#if PHP_MAJOR_VERSION >= 7
+    zend_string *ssl_key = NULL, *ssl_key_passphrase = NULL, *ssl_cert = NULL, *ssl_cipher = NULL, *ssl_capath = NULL;
+#else
+    char *ssl_key = NULL, *ssl_key_passphrase = NULL, *ssl_cert = NULL, *ssl_cipher = NULL, *ssl_capath = NULL;
+#endif
 
     if (driver_options) {
         timeout = pdo_attr_lval(driver_options, PDO_ATTR_TIMEOUT, timeout TSRMLS_CC);
@@ -313,19 +318,43 @@ static int pdo_cassandra_handle_factory(pdo_dbh_t *dbh, zval *driver_options TSR
             H->ssl = 1;
 
             if (ssl_cert) {
+#if PHP_MAJOR_VERSION >= 7
+                H->factory->loadCertificate(ssl_cert->val);
+                zend_string_release(ssl_cert);
+#else
                 H->factory->loadCertificate(ssl_cert);
+                efree(ssl_cert);
+#endif
             }
 
             if (ssl_key) {
                 if (ssl_key_passphrase) {
+#if PHP_MAJOR_VERSION >= 7
+                    H->factory->setPassword(ssl_key_passphrase->val);
+                    zend_string_release(ssl_key_passphrase);
+#else
                     H->factory->setPassword(ssl_key_passphrase);
+                    efree(ssl_key_passphrase);
+#endif
                     H->factory->overrideDefaultPasswordCallback();
                 }
+#if PHP_MAJOR_VERSION >= 7
+                H->factory->loadPrivateKey(ssl_key->val);
+                zend_string_release(ssl_key);
+#else
                 H->factory->loadPrivateKey(ssl_key);
+                efree(ssl_key);
+#endif
             }
 
             if (ssl_capath) {
+#if PHP_MAJOR_VERSION >= 7
+                H->factory->loadTrustedCertificates(ssl_capath->val);
+                zend_string_release(ssl_capath);
+#else
                 H->factory->loadTrustedCertificates(ssl_capath);
+                efree(ssl_capath);
+#endif
             }
 
             if (ssl_validate) {
@@ -333,7 +362,13 @@ static int pdo_cassandra_handle_factory(pdo_dbh_t *dbh, zval *driver_options TSR
             }
 
             if (ssl_cipher) {
+#if PHP_MAJOR_VERSION >= 7
+                H->factory->ciphers(ssl_cipher->val);
+                zend_string_release(ssl_cipher);
+#else
                 H->factory->ciphers(ssl_cipher);
+                efree(ssl_cipher);
+#endif
             }
 
             if (!ssl_verify_host) {
