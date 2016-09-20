@@ -271,6 +271,7 @@ static int pdo_cassandra_handle_factory(pdo_dbh_t *dbh, zval *driver_options TSR
     H->einfo.errmsg    = NULL;
     H->has_description = 0;
     H->preserve_values = 0;
+    H->ssl             = 0;
 
     H->factory.reset(new PasswordCallbackTSSLSocketFactory);
     H->socket.reset(new TSocketPool);
