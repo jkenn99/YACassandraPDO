@@ -8,7 +8,7 @@ Mutiple select in prepare statement
 <?php
 require_once(dirname(__FILE__) . '/config.inc');
 
-$db = new PDO($dsn, $username, $password);
+$db = new PDO($dsn, $username, $password, $params);
 
 try {
    $db->exec ("DROP KEYSPACE {$keyspace}");

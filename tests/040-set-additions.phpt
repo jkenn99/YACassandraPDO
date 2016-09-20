@@ -1,5 +1,5 @@
 --TEST--
-Boolean related tests
+Set Additions
 
 --SKIPIF--
 <?php require_once(dirname(__FILE__) . '/skipif.inc'); ?>
@@ -8,7 +8,7 @@ Boolean related tests
 <?php
 require_once(dirname(__FILE__) . '/config.inc');
 
-$db = new PDO($dsn, $username, $password);
+$db = new PDO($dsn, $username, $password, $params);
 
 try {
    $db->exec ("DROP KEYSPACE {$keyspace}");
