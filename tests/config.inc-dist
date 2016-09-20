@@ -15,7 +15,7 @@ $params = array (PDO_CASSANDRA_ATTR_SSL_KEY => YourSSLKeyPath,
 		PDO::CASSANDRA_ATTR_SSL_CAPATH => YourTrustedCertPath,
 		PDO::CASSANDRA_ATTR_SSL_VERIFY_HOST => 0);
 */
-$params = array()
+$params = array();
 
 // Warning: the keyspace will be truncated during tests
 $keyspace = "phptests";
