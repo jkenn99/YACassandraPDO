@@ -500,7 +500,12 @@ std::string pdo_cassandra_get_first_sub_pattern(const std::string &subject, cons
     ALLOC_INIT_ZVAL(sub_patterns);
 #endif
 
+#if PHP_MAJOR_VERSION >= 7
+    zend_string *haystack = zend_string_init(const_cast<char *>(subject.c_str()), subject.size(), 0);
+    php_pcre_match_impl(pce, haystack, return_value, sub_patterns, 1, 1, 0, 0 TSRMLS_CC);
+#else
     php_pcre_match_impl(pce, const_cast<char *>(subject.c_str()), subject.size(), return_value, sub_patterns, 1, 1, 0, 0 TSRMLS_CC);
+#endif
 
     if ((Z_LVAL_P(return_value) > 0) && (Z_TYPE_P(sub_patterns) == IS_ARRAY)) {
 
@@ -537,6 +542,7 @@ std::string pdo_cassandra_get_first_sub_pattern(const std::string &subject, cons
 
 #if PHP_MAJOR_VERSION >= 7
     zend_string_release(regexp);
+    zend_string_release(haystack);
     zval_ptr_dtor(sub_patterns);
 #else
     zval_ptr_dtor(&return_value);
